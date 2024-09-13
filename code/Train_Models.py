@@ -5,10 +5,10 @@ import time
 import re
 
 from sklearn.model_selection import TimeSeriesSplit
-from sklearn.model_selection import GridSearchCV
+from sklearn.model_selection import GridSearchCV, cross_val_score
 from sklearn.compose import ColumnTransformer
 from sklearn.pipeline import Pipeline
-from sklearn.metrics import mean_squared_error
+from sklearn.metrics import mean_squared_error, make_scorer
 
 from sklearn.linear_model import LinearRegression
 from sklearn.linear_model import Lasso
@@ -27,6 +27,8 @@ import Preprocess_Data
 import logging
 import sys
 
+import optuna
+
 # Set up logging
 logger = logging.getLogger(__name__)
 stream_handler = logging.StreamHandler(sys.stdout)
@@ -40,6 +42,35 @@ path = os.getcwd()
 parent = os.path.dirname(path)
 
 data_dir = os.path.join(parent,'data/')
+
+# Helper functions for Optuna:
+def instantiate_model(trial, algo, proprocessing_pipeline, make_params):
+    # thre is a bug in this model! it should take into consideration the trial!
+
+    # define parameters to tune
+    params = make_params(trial, algo)
+    
+    # instantiate algorithms
+    algo = algo(**params)
+
+    # create pipeline
+    pipe = Pipeline([('preprocessor', proprocessing_pipeline), 
+                         ('model', algo)])
+    
+    return pipe
+
+def objective(trial, algo, preprocessing_pipeline, X_train, y_train, make_params, n_splits):
+    
+    # instantiate model
+    
+    model = instantiate_model(trial, algo, preprocessing_pipeline, make_params)
+
+    # perform cross validation
+    tsp = TimeSeriesSplit(n_splits = n_splits)
+    MSE_scorer = make_scorer(mean_squared_error)
+    scores = cross_val_score(model, X_train, y_train, scoring = MSE_scorer, cv = tsp)
+    
+    return np.min([np.mean(scores), np.median(scores)])
 
 # Main class:
 class MLYieldPredictor:
@@ -72,17 +103,42 @@ class MLYieldPredictor:
         if not os.path.exists(self.exp_folder):
             os.makedirs(self.exp_folder)
     
-    def train(self, X, y, cv_method = 'GridSearchCV'):
-        # [todo] add bayesian hyper-parameter tuning
+    def train(self, X, y, cv_method = 'GridSearchCV', n_trials = 10):
+        if cv_method == 'Bayesian':
+            # use Bayesian hyperparameter tuning
+            study = optuna.create_study(direction='minimize')
+
+            study.optimize(lambda trial: objective(trial, 
+                                                   self.model, 
+                                                   self.preprocessing_pipeline, 
+                                                   X, 
+                                                   y, 
+                                                   self.params, 
+                                                   self.n_splits), 
+                                                   n_trials=n_trials)
+            
+            print('best model parameters:',study.best_params)
+            print('validation score:',study.best_value)
+
+            # save best model
+            self.best_model = instantiate_model(study.best_trial, self.model, self.preprocessing_pipeline, self.params)
+            self.best_model.fit(X,y)
+            
+            save_file = open(os.path.join(self.exp_folder, 'model.save'), 'wb')
+            pickle.dump(self.best_model, save_file)
 
 
-        # initialize algorithm
-        algo = self.model()
-        self.pipe = Pipeline([('preprocessor', self.preprocessing_pipeline), 
-                         ('model', algo)])
-        tsp = TimeSeriesSplit(n_splits = self.n_splits)
         # tune hyperparameters
-        if cv_method == 'GridSearchCV':
+        elif cv_method == 'GridSearchCV':
+            # initialize algorithm
+            algo = self.model()
+            self.pipe = Pipeline([('preprocessor', self.preprocessing_pipeline), 
+                            ('model', algo)])
+            
+            # perform cross validation
+            tsp = TimeSeriesSplit(n_splits = self.n_splits)
+
+            grid_params = dict(('model__'+k,v) for k,v in self.params.items())
             grid = GridSearchCV(self.pipe, 
                                 param_grid = self.params, 
                                 scoring = 'neg_mean_squared_error', 
