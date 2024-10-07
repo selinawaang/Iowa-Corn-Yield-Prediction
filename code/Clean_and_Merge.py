@@ -11,6 +11,9 @@ import sys
 # Set up logging
 logger = logging.getLogger(__name__)
 stream_handler = logging.StreamHandler(sys.stdout)
+if (logger.hasHandlers()):
+    logger.handlers.clear()
+
 logger.addHandler(stream_handler)
 logger.setLevel(logging.DEBUG)
 
@@ -60,9 +63,10 @@ class CleanAndMerge:
     
     # Feature engineering methods:
     def extract_ymd(self):
-        # extract year, month, and day from 'day' column
+        # extract year, month, week and day from 'day' column
         self.station_data['year'] = self.station_data['day'].dt.year
         self.station_data['month'] = self.station_data['day'].dt.month
+        self.station_data['week'] = self.station_data['day'].dt.isocalendar()['week']
         self.station_data['day'] = self.station_data['day'].dt.day
 
         logger.debug('ymd extracted')
@@ -79,18 +83,18 @@ class CleanAndMerge:
         self.station_data.loc[self.station_data['month'] == '12', 'month'] = '12_prev'
 
         # drop data during harvest months
-        months_to_drop = [9, 10, 11]
+        months_to_drop = ['9', '10', '11']
         self.station_data = self.station_data[~self.station_data['month'].isin(months_to_drop)]
 
         logger.debug('month shifted')
+        logger.debug(self.station_data['month'].unique())
     def aggregate_values(self, level = ['year', 'month'], aggs = ['mean','std','min','max']):
         # convert daily time series data into monthly aggregates
 
         logger.debug('aggregating values')
-        logger.debug(['station'] + level)
-
+        logger.debug(level)
         # perform aggregation
-        station_data_agg = self.station_data.groupby(['station', 'year','month']).agg(
+        station_data_agg = self.station_data.groupby(['station'] + level).agg(
             {'gdd_50_86' : aggs,
                 'high' : aggs,
                 'low' : aggs,
@@ -103,19 +107,22 @@ class CleanAndMerge:
 
         # rename multi-index columns
         station_data_agg.columns = station_data_agg.columns.map(lambda cn : "_".join(cn))
-        logger.debug(station_data_agg.head())
+        
 
-        # change month into a string
+        # change aggregating level into a string
         station_data_agg = station_data_agg.reset_index()
-        station_data_agg['month'] = station_data_agg['month'].astype(str)
+        station_data_agg[f'{level[1]}'] = station_data_agg[f'{level[1]}'].astype(str)
 
         # reshape data
-        station_data_agg = station_data_agg.pivot(index = ['station', 'year'], columns ='month')
+        station_data_agg = station_data_agg.pivot(index = ['station', 'year'], columns =f'{level[1]}')
         station_data_agg.columns = station_data_agg.columns.map(lambda cn : "_".join(cn))
         station_data_agg.reset_index(inplace = True)
-
+        
         # drop null values
-        station_data_agg.dropna(inplace = True)
+        station_data_agg.dropna(axis = 1, inplace = True)
+        
+        logger.debug(station_data_agg.head())
+        
 
         # combine station_data_agg with the rest of the columns in station_data
         self.station_data= pd.merge(station_data_agg, 
@@ -166,9 +173,11 @@ class CleanAndMerge:
         self.convert_data_types(columns_to_convert)
         self.extract_ymd()
         self.shift_months()
-        self.aggregate_values()
+        self.aggregate_values(level=['year','week'])
         
         self.merge_datasets()
+
+        return self.merged_data
 
 
 

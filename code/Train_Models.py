@@ -4,8 +4,7 @@ import numpy as np
 import time
 import re
 
-from sklearn.model_selection import TimeSeriesSplit
-from sklearn.model_selection import GridSearchCV, cross_val_score
+from sklearn.model_selection import GridSearchCV, cross_val_score, BaseCrossValidator, TimeSeriesSplit
 from sklearn.compose import ColumnTransformer
 from sklearn.pipeline import Pipeline
 from sklearn.metrics import mean_squared_error, make_scorer
@@ -13,6 +12,7 @@ from sklearn.metrics import mean_squared_error, make_scorer
 from sklearn.linear_model import LinearRegression
 from sklearn.linear_model import Lasso
 from sklearn.ensemble import RandomForestRegressor
+
 from xgboost import XGBRegressor
 
 from sklearn.ensemble import VotingRegressor
@@ -43,6 +43,40 @@ parent = os.path.dirname(path)
 
 data_dir = os.path.join(parent,'data/')
 
+# Helper functions for model training:
+
+class YearBasedTimeSeriesSplit(BaseCrossValidator):
+    def __init__(self, n_splits):
+        self.n_splits = n_splits
+
+    def get_n_splits(self, X=None, y=None, groups=None):
+        return self.n_splits
+
+    def split(self, X, y=None, groups=None):
+        # Assume the year is stored in a column named 'year'
+        years = np.sort(X['year'].unique())
+        n_years = len(years)
+
+        if self.n_splits >= n_years:
+            raise ValueError(f"Number of splits ({self.n_splits}) must be less than the number of unique years ({n_years}).")
+
+        # The number of test sets will be `n_splits`, meaning we'll leave out some years for each test set.
+        split_size = n_years // (self.n_splits + 1)
+        
+        indices = np.arange(X.shape[0])
+        year_indices = {year: np.where(X['year'] == year)[0] for year in years}
+        
+        for i in range(self.n_splits):
+            # Train set includes all years up to the current year
+            train_years = years[:split_size + i]
+            # Test set is the next year after the last train year
+            test_year = years[split_size + i]
+
+            train_idx = np.concatenate([year_indices[year] for year in train_years])
+            test_idx = year_indices[test_year]
+
+            yield train_idx, test_idx
+
 # Helper functions for Optuna:
 def instantiate_model(trial, algo, proprocessing_pipeline, make_params):
     # thre is a bug in this model! it should take into consideration the trial!
@@ -71,6 +105,10 @@ def objective(trial, algo, preprocessing_pipeline, X_train, y_train, make_params
     scores = cross_val_score(model, X_train, y_train, scoring = MSE_scorer, cv = tsp)
     
     return np.min([np.mean(scores), np.median(scores)])
+
+def evaluate(y_true, y_pred):
+    return mean_squared_error(y_true, y_pred)
+
 
 # Main class:
 class MLYieldPredictor:
@@ -123,7 +161,7 @@ class MLYieldPredictor:
             # save best model
             self.best_model = instantiate_model(study.best_trial, self.model, self.preprocessing_pipeline, self.params)
             self.best_model.fit(X,y)
-            
+
             save_file = open(os.path.join(self.exp_folder, 'model.save'), 'wb')
             pickle.dump(self.best_model, save_file)
 

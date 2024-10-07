@@ -61,13 +61,17 @@ def make_encoder(df):
         std_ftrs = df.columns.tolist()
 
 
+    print("Feature selection included in pipeline")
     encoder = ColumnTransformer(
         transformers=[
             ('onehot', OneHotEncoder(sparse_output=False), onehot_ftrs),
-            ('std', StandardScaler(), std_ftrs),
-            #'feature_selection', SelectFromModel(Lasso())
-        ]
-    )
+            ('std', StandardScaler(), std_ftrs)
+        ])
+
+    pipe = Pipeline([('preprocessor', encoder), 
+                     ('feature_selection',SelectFromModel(Lasso()))])
+
+    return pipe
 
     return encoder
 
@@ -131,6 +135,9 @@ class Preprocessing:
         self.df = df.copy().sort_values('year')
 
         self.add_lag_value()
+
+        self.df.to_csv(os.path.join(parent, 'data/df_all.csv'), index=False)
+
         self.split(5)
 
         # split data into X and y
@@ -139,7 +146,7 @@ class Preprocessing:
         self.X_test = self.test.drop(['Value'], axis=1)
         self.y_test = self.test['Value']
 
-        self.feature_selection()
+        #self.feature_selection()
 
         # save preprocessed data to CSV files
         self.X_train.to_csv(os.path.join(parent, 'data/X_train.csv'), index=False)
