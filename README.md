@@ -18,7 +18,7 @@ For each step of the pipeline, I write the classes and functions in a .py file, 
 3. Data preprocessing: scaling data, feature engineering and feature selection \
 [Data Cleaning Classes and Functions](https://github.com/selinawaang/Iowa-Corn-Yield-Prediction/blob/main/code/Preprocess_Data.py)
 4. Model training and evaluation: pipeline includes data preprocessing, model training and hyperparameter tuning, results evaluation on test set \
-[Model Training and Evaluation Pipeline Classes and Functions](https://github.com/selinawaang/Iowa-Corn-Yield-Prediction/blob/main/code/Train_Models.py) 
+[Model Training and Evaluation Pipeline Classes and Functions](https://github.com/selinawaang/Iowa-Corn-Yield-Prediction/blob/main/code/Train_Models.py)  
 [Model Training and Evaluation Notebook](https://github.com/selinawaang/Iowa-Corn-Yield-Prediction/blob/main/code/Data%20Preprocessing%20and%20Training.ipynb) (In Progress)
 
 
